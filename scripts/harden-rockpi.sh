@@ -122,6 +122,9 @@ SSHEOF
 
 log "SSH drop-in written to $SSH_DROPIN"
 
+# Ensure privilege separation directory exists (needed for sshd -t validation)
+mkdir -p /run/sshd
+
 # Validate before reload — abort on failure
 if sshd -t; then
   log "sshd config validation passed."
@@ -178,7 +181,7 @@ ufw default deny outgoing
 ufw logging on
 
 # Inbound: SSH only
-ufw allow in 22/tcp comment "SSH"
+ufw allow in 22/tcp comment "SSH (remove after Cloudflare Tunnel setup)"
 
 # Outbound allowlist
 ufw allow out 53/udp comment "DNS (udp)"
