@@ -1,0 +1,19 @@
+FROM --platform=linux/arm64 debian:bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Ensure systemd and curl are available
+RUN apt-get update && apt-get install -y systemd systemd-sysv curl openssh-server && apt-get clean \
+    && mkdir -p /run/sshd
+
+# Clean up unnecessary systemd units for faster container boot
+RUN rm -f /lib/systemd/system/multi-user.target.wants/* \
+    /etc/systemd/system/*.wants/* \
+    /lib/systemd/system/local-fs.target.wants/* \
+    /lib/systemd/system/sockets.target.wants/*udev* \
+    /lib/systemd/system/sockets.target.wants/*initctl* \
+    /lib/systemd/system/sysinit.target.wants/systemd-tmpfiles-setup* \
+    /lib/systemd/system/systemd-update-utmp*
+
+STOPSIGNAL SIGRTMIN+3
+CMD ["/lib/systemd/systemd"]

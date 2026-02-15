@@ -15,9 +15,9 @@ PASS=0
 FAIL=0
 WARN=0
 
-pass() { ((PASS++)); echo "[PASS] $*"; }
-fail() { ((FAIL++)); echo "[FAIL] $*"; }
-warn() { ((WARN++)); echo "[WARN] $*"; }
+pass() { ((++PASS)); echo "[PASS] $*"; }
+fail() { ((++FAIL)); echo "[FAIL] $*"; }
+warn() { ((++WARN)); echo "[WARN] $*"; }
 
 echo "========================================="
 echo "  RockPi Hardening Verification"

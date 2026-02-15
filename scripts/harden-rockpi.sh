@@ -474,10 +474,10 @@ log "sshd config:"
 sshd -t && log "  sshd -t: OK" || log "  sshd -t: FAILED"
 
 log "UFW status:"
-ufw status verbose | while IFS= read -r line; do log "  $line"; done
+ufw status verbose 2>&1 | while IFS= read -r line; do log "  $line"; done || true
 
 log "fail2ban status:"
-fail2ban-client status sshd 2>&1 | while IFS= read -r line; do log "  $line"; done
+fail2ban-client status sshd 2>&1 | while IFS= read -r line; do log "  $line"; done || true
 
 log "Key sysctl values:"
 for KEY in kernel.randomize_va_space kernel.kptr_restrict kernel.dmesg_restrict vm.swappiness; do
@@ -489,7 +489,7 @@ ENTROPY=$(cat /proc/sys/kernel/random/entropy_avail 2>/dev/null || echo "unknown
 log "Entropy: $ENTROPY"
 
 log "Chrony status:"
-chronyc tracking 2>&1 | head -5 | while IFS= read -r line; do log "  $line"; done
+chronyc tracking 2>&1 | head -5 | while IFS= read -r line; do log "  $line"; done || true
 
 log "=== RockPi hardening complete ==="
 log "NEXT STEPS:"
