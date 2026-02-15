@@ -9,15 +9,23 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
+# --- Require dependencies ---
+command -v curl >/dev/null    || { echo "ERROR: curl is required (apt-get install -y curl)" >&2; exit 1; }
+command -v jq >/dev/null      || { echo "ERROR: jq is required (apt-get install -y jq)" >&2; exit 1; }
+command -v lsb_release >/dev/null || { echo "ERROR: lsb_release is required (apt-get install -y lsb-release)" >&2; exit 1; }
+
 # --- Prompt for hostname ---
 read -rp "Enter the SSH tunnel hostname (e.g. ssh.rockpi.example.com): " TUNNEL_HOSTNAME
 if [[ -z "$TUNNEL_HOSTNAME" ]]; then
   echo "ERROR: Hostname cannot be empty." >&2
   exit 1
 fi
+[[ "$TUNNEL_HOSTNAME" == *.* ]] || { echo "ERROR: Hostname must be a FQDN (e.g. ssh.rockpi.example.com)" >&2; exit 1; }
+[[ "$TUNNEL_HOSTNAME" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$ ]] \
+  || { echo "ERROR: Invalid hostname: $TUNNEL_HOSTNAME" >&2; exit 1; }
 
-TUNNEL_NAME="rockpi"
-SSH_USER="${SUDO_USER:-autohodl}"
+TUNNEL_NAME="rockpi-$(hostname -s)"
+SSH_USER="autohodl"
 
 echo ""
 echo "=== Cloudflare Tunnel Setup ==="
@@ -47,25 +55,37 @@ echo ""
 echo "--- Authenticating with Cloudflare ---"
 echo "A URL will be displayed. Open it in a browser on another device to authorize."
 echo ""
-cloudflared tunnel login
+HOME=/root cloudflared tunnel login
 
 # --- Step 3: Create named tunnel ---
 echo ""
 echo "--- Creating tunnel '$TUNNEL_NAME' ---"
-if cloudflared tunnel list | grep -q "$TUNNEL_NAME"; then
+if HOME=/root cloudflared tunnel list --output json | jq -e --arg n "$TUNNEL_NAME" 'map(select(.name==$n)) | length > 0' >/dev/null 2>&1; then
   echo "Tunnel '$TUNNEL_NAME' already exists, skipping creation."
 else
-  cloudflared tunnel create "$TUNNEL_NAME"
+  HOME=/root cloudflared tunnel create "$TUNNEL_NAME"
 fi
 
-# --- Step 4: Write config ---
+# --- Step 4: Resolve tunnel ID and write config ---
 echo ""
 echo "--- Writing cloudflared config ---"
 mkdir -p /etc/cloudflared
 
+TUNNEL_ID="$(HOME=/root cloudflared tunnel list --output json | jq -r --arg n "$TUNNEL_NAME" 'map(select(.name==$n))[0].id // empty')"
+if [[ -z "$TUNNEL_ID" ]]; then
+  echo "ERROR: Could not resolve tunnel ID for '$TUNNEL_NAME'" >&2
+  exit 1
+fi
+
+CRED_FILE="/etc/cloudflared/${TUNNEL_ID}.json"
+cp "/root/.cloudflared/${TUNNEL_ID}.json" "$CRED_FILE" 2>/dev/null \
+  || { echo "ERROR: Could not find credentials for tunnel $TUNNEL_ID in /root/.cloudflared/" >&2; exit 1; }
+chmod 600 "$CRED_FILE"
+
 cat > /etc/cloudflared/config.yml <<EOF
-tunnel: $TUNNEL_NAME
-credentials-file: /root/.cloudflared/$(cloudflared tunnel info "$TUNNEL_NAME" 2>&1 | grep -oP '[a-f0-9-]{36}').json
+tunnel: $TUNNEL_ID
+credentials-file: $CRED_FILE
+protocol: http2
 
 ingress:
   - hostname: $TUNNEL_HOSTNAME
@@ -78,24 +98,31 @@ echo "Config written to /etc/cloudflared/config.yml"
 # --- Step 5: Set up DNS route ---
 echo ""
 echo "--- Routing DNS for $TUNNEL_HOSTNAME ---"
-cloudflared tunnel route dns "$TUNNEL_NAME" "$TUNNEL_HOSTNAME"
+HOME=/root cloudflared tunnel route dns "$TUNNEL_NAME" "$TUNNEL_HOSTNAME"
 
 # --- Step 6: Install systemd service ---
 echo ""
 echo "--- Installing cloudflared as systemd service ---"
-cloudflared service install
+if cloudflared service install --help 2>&1 | grep -q -- '--config'; then
+  cloudflared service install --config /etc/cloudflared/config.yml
+else
+  cloudflared service install
+  mkdir -p /etc/systemd/system/cloudflared.service.d
+  cat > /etc/systemd/system/cloudflared.service.d/override.conf <<'OVERRIDE'
+[Service]
+ExecStart=
+ExecStart=/usr/bin/cloudflared --config /etc/cloudflared/config.yml tunnel run
+OVERRIDE
+fi
+systemctl daemon-reload
 systemctl enable cloudflared
-systemctl start cloudflared
+systemctl restart cloudflared
+systemctl is-active --quiet cloudflared || { echo "ERROR: cloudflared failed to start. Check logs above." >&2; exit 1; }
 echo "Service status:"
 systemctl --no-pager status cloudflared
-
-# --- Step 7: Remove inbound port 22 from UFW ---
 echo ""
-echo "--- Removing inbound SSH port from UFW ---"
-ufw delete allow in 22/tcp
-ufw --force reload
-echo "UFW status:"
-ufw status numbered
+echo "--- Recent cloudflared logs ---"
+journalctl -u cloudflared --no-pager -n 20
 
 # --- Done ---
 echo ""
@@ -116,4 +143,25 @@ echo "    User $SSH_USER"
 echo ""
 echo "  # 3. Connect:"
 echo "  ssh $TUNNEL_HOSTNAME"
+echo ""
+echo "============================================"
+echo " BEFORE closing port 22:"
+echo "============================================"
+echo ""
+echo "  1. Set up Cloudflare Access (Zero Trust dashboard):"
+echo "     - Go to: Access → Applications → Add an application"
+echo "     - Type: Self-hosted, domain: $TUNNEL_HOSTNAME"
+echo "     - Add a policy (e.g. allow your email)"
+echo ""
+echo "  2. Test SSH through the tunnel from your laptop:"
+echo "     ssh $TUNNEL_HOSTNAME"
+echo ""
+echo "  3. Only after a successful tunnel connection, close port 22:"
+echo "     sudo ufw delete allow in 22/tcp && sudo ufw reload"
+echo ""
+echo "  4. (Optional) Bind sshd to localhost only — prevents exposure"
+echo "     even if firewall rules drift:"
+echo "     Edit /etc/ssh/sshd_config, set:"
+echo "       ListenAddress 127.0.0.1"
+echo "     Then: sudo systemctl restart sshd"
 echo ""

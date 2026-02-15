@@ -85,6 +85,17 @@ else
   chmod 600 "$PASS_FILE"
   log "User $AUTOHODL_USER created. Temp password written to $PASS_FILE"
   log ">>> ADD YOUR SSH PUBLIC KEY to ${AUTOHODL_HOME}/.ssh/authorized_keys <<<"
+
+  echo ""
+  echo "============================================="
+  echo "  IMPORTANT: Copy this temporary password NOW"
+  echo "  User:     $AUTOHODL_USER"
+  echo "  Password: $TEMP_PASS"
+  echo "  (Also saved to $PASS_FILE)"
+  echo "============================================="
+  echo ""
+  read -n 1 -s -r -p "Press any key to continue..."
+  echo ""
 fi
 
 # Password-required sudo (ensure no NOPASSWD for autohodl)
