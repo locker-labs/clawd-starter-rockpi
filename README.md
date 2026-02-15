@@ -5,14 +5,14 @@ Baseline hardening for Debian 12 on RockPi (ARM) — single command, no clone re
 ## Usage
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/locker-labs/clawd-starter-rockpi/main/scripts/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/locker-labs/clawd-starter-rockpi/main/scripts/setup.sh -o /tmp/setup.sh && bash /tmp/setup.sh
 ```
 
 ### With environment variables
 
 ```bash
-HARDEN_PHYSICAL=1 PERF_GOVERNOR=1 \
-  curl -fsSL https://raw.githubusercontent.com/locker-labs/clawd-starter-rockpi/main/scripts/setup.sh | bash
+curl -fsSL https://raw.githubusercontent.com/locker-labs/clawd-starter-rockpi/main/scripts/setup.sh -o /tmp/setup.sh && \
+  HARDEN_PHYSICAL=1 PERF_GOVERNOR=1 bash /tmp/setup.sh
 ```
 
 ## Environment Variables
