@@ -9,15 +9,24 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
+# --- Source central config ---
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for _conf in "$SCRIPT_DIR/rockpi.conf" /tmp/rockpi.conf /opt/scripts/rockpi.conf; do
+  if [[ -f "$_conf" ]]; then source "$_conf"; break; fi
+done
+
 # --- Require dependencies ---
 command -v curl >/dev/null    || { echo "ERROR: curl is required (apt-get install -y curl)" >&2; exit 1; }
 command -v jq >/dev/null      || { echo "ERROR: jq is required (apt-get install -y jq)" >&2; exit 1; }
 command -v lsb_release >/dev/null || { echo "ERROR: lsb_release is required (apt-get install -y lsb-release)" >&2; exit 1; }
 
-# --- Prompt for hostname ---
-read -rp "Enter the SSH tunnel hostname (e.g. ssh.rockpi.example.com): " TUNNEL_HOSTNAME
+# --- Resolve hostname (from config, env, or prompt) ---
+TUNNEL_HOSTNAME="${TUNNEL_HOSTNAME:-}"
 if [[ -z "$TUNNEL_HOSTNAME" ]]; then
-  echo "ERROR: Hostname cannot be empty." >&2
+  read -rp "Enter the SSH tunnel hostname (e.g. ssh.rockpi.example.com): " TUNNEL_HOSTNAME
+fi
+if [[ -z "$TUNNEL_HOSTNAME" ]]; then
+  echo "ERROR: Hostname cannot be empty. Set TUNNEL_HOSTNAME in rockpi.conf or export it." >&2
   exit 1
 fi
 [[ "$TUNNEL_HOSTNAME" == *.* ]] || { echo "ERROR: Hostname must be a FQDN (e.g. ssh.rockpi.example.com)" >&2; exit 1; }
@@ -25,7 +34,7 @@ fi
   || { echo "ERROR: Invalid hostname: $TUNNEL_HOSTNAME" >&2; exit 1; }
 
 TUNNEL_NAME="rockpi-$(hostname -s)"
-SSH_USER="autohodl"
+SSH_USER="${ROCKPI_USER:-autohodl}"
 
 echo ""
 echo "=== Cloudflare Tunnel Setup ==="

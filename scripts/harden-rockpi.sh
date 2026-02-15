@@ -23,9 +23,15 @@ export DEBIAN_FRONTEND=noninteractive
 LOGFILE="/var/log/rockpi-harden.log"
 exec > >(tee -a "$LOGFILE") 2>&1
 
+# Source central config (try multiple locations: alongside script, /tmp, /opt)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for _conf in "$SCRIPT_DIR/rockpi.conf" /tmp/rockpi.conf /opt/scripts/rockpi.conf; do
+  if [[ -f "$_conf" ]]; then source "$_conf"; break; fi
+done
+
 HARDEN_PHYSICAL="${HARDEN_PHYSICAL:-0}"
 PERF_GOVERNOR="${PERF_GOVERNOR:-0}"
-AUTOHODL_USER="autohodl"
+AUTOHODL_USER="${ROCKPI_USER:-autohodl}"
 
 log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 
@@ -111,13 +117,13 @@ fi
 
 log "--- SSH hardening ---"
 SSH_DROPIN="/etc/ssh/sshd_config.d/99-hardening.conf"
-cat > "$SSH_DROPIN" <<'SSHEOF'
+cat > "$SSH_DROPIN" <<SSHEOF
 # RockPi hardening drop-in — conservative, pin only important knobs
 # Debian 12 defaults for KexAlgorithms/Ciphers/MACs are already sane
 PermitRootLogin no
 MaxAuthTries 3
 MaxSessions 3
-AllowUsers autohodl
+AllowUsers $AUTOHODL_USER
 PubkeyAuthentication yes
 PasswordAuthentication yes
 PermitEmptyPasswords no
@@ -139,7 +145,7 @@ mkdir -p /run/sshd
 # Validate before reload — abort on failure
 if sshd -t; then
   log "sshd config validation passed."
-  systemctl reload sshd || systemctl reload ssh || true
+  systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
   log "sshd reloaded."
 else
   log "ERROR: sshd -t failed! Removing drop-in and aborting."
@@ -149,23 +155,52 @@ fi
 
 # --- 6. Verify SSH works -----------------------------------------------------
 
-log "--- SSH verification pause ---"
-if [[ -t 0 ]]; then
-  echo ""
-  echo "============================================================"
-  echo "  IMPORTANT: Open a NEW terminal and test SSH as $AUTOHODL_USER"
-  echo "  before continuing. Do NOT close this session."
-  echo "============================================================"
-  echo ""
-  read -rp "Have you confirmed SSH works as $AUTOHODL_USER? (yes/no): " CONFIRM
-  if [[ "$CONFIRM" != "yes" ]]; then
-    log "User did not confirm SSH. Aborting before locking default users."
+log "--- SSH verification ---"
+# Ensure sshd is running (on fresh installs the service may not be started yet)
+SSH_SVC=""
+if systemctl list-unit-files ssh.service &>/dev/null 2>&1; then
+  SSH_SVC="ssh"
+elif systemctl list-unit-files sshd.service &>/dev/null 2>&1; then
+  SSH_SVC="sshd"
+fi
+
+if [[ -n "$SSH_SVC" ]]; then
+  systemctl enable "$SSH_SVC" 2>/dev/null || true
+  systemctl start "$SSH_SVC" 2>/dev/null || true
+  if systemctl is-active "$SSH_SVC" &>/dev/null; then
+    log "SSH service ($SSH_SVC) is running."
+  else
+    log "ERROR: SSH service ($SSH_SVC) failed to start! Aborting before locking default users."
     exit 1
   fi
 else
-  log "Non-interactive mode: skipping SSH confirmation pause."
-  log "WARNING: Verify SSH access as $AUTOHODL_USER before locking default users!"
+  log "ERROR: No SSH service found! Aborting."
+  exit 1
 fi
+
+if sshd -t 2>/dev/null; then
+  log "sshd config syntax OK."
+else
+  log "ERROR: sshd -t failed after reload! Aborting."
+  exit 1
+fi
+
+if id "$AUTOHODL_USER" &>/dev/null; then
+  AUTOHODL_HOME=$(getent passwd "$AUTOHODL_USER" | cut -d: -f6)
+  if [[ -f "${AUTOHODL_HOME}/.ssh/authorized_keys" ]]; then
+    KEY_COUNT=$(grep -cE '^ssh-' "${AUTOHODL_HOME}/.ssh/authorized_keys" 2>/dev/null || echo 0)
+    if [[ "$KEY_COUNT" -gt 0 ]]; then
+      log "Found $KEY_COUNT SSH key(s) for $AUTOHODL_USER."
+    else
+      log "WARNING: No SSH keys found in ${AUTOHODL_HOME}/.ssh/authorized_keys"
+      log "  Add your key before disabling password auth!"
+    fi
+  else
+    log "WARNING: ${AUTOHODL_HOME}/.ssh/authorized_keys does not exist yet."
+    log "  Add your key before disabling password auth!"
+  fi
+fi
+log "SSH verification passed. Proceeding."
 
 # --- 7. Lock default users ---------------------------------------------------
 

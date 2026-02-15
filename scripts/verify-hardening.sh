@@ -11,6 +11,13 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
+# Source central config
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+for _conf in "$SCRIPT_DIR/rockpi.conf" /tmp/rockpi.conf /opt/scripts/rockpi.conf; do
+  if [[ -f "$_conf" ]]; then source "$_conf"; break; fi
+done
+ROCKPI_USER="${ROCKPI_USER:-autohodl}"
+
 PASS=0
 FAIL=0
 WARN=0
@@ -48,10 +55,10 @@ else
 fi
 
 ALLOW_USERS=$(sshd -T 2>/dev/null | grep -i "^allowusers" | awk '{print $2}')
-if [[ "$ALLOW_USERS" == "autohodl" ]]; then
-  pass "AllowUsers = autohodl"
+if [[ "$ALLOW_USERS" == "$ROCKPI_USER" ]]; then
+  pass "AllowUsers = $ROCKPI_USER"
 else
-  fail "AllowUsers = '$ALLOW_USERS' (expected: autohodl)"
+  fail "AllowUsers = '$ALLOW_USERS' (expected: $ROCKPI_USER)"
 fi
 
 echo ""
@@ -59,15 +66,15 @@ echo ""
 # --- Users ---
 echo "--- User Accounts ---"
 
-if id autohodl &>/dev/null; then
-  pass "autohodl user exists"
-  if groups autohodl | grep -q sudo; then
-    pass "autohodl is in sudo group"
+if id "$ROCKPI_USER" &>/dev/null; then
+  pass "$ROCKPI_USER user exists"
+  if groups "$ROCKPI_USER" | grep -q sudo; then
+    pass "$ROCKPI_USER is in sudo group"
   else
-    fail "autohodl is NOT in sudo group"
+    fail "$ROCKPI_USER is NOT in sudo group"
   fi
 else
-  fail "autohodl user does not exist"
+  fail "$ROCKPI_USER user does not exist"
 fi
 
 for LOCKED_USER in rock linaro pi; do
@@ -86,11 +93,11 @@ for LOCKED_USER in rock linaro pi; do
   fi
 done
 
-# Check NOPASSWD not present for autohodl
-if grep -r "NOPASSWD" /etc/sudoers /etc/sudoers.d/ 2>/dev/null | grep -q autohodl; then
-  fail "autohodl has NOPASSWD sudo (should require password)"
+# Check NOPASSWD not present
+if grep -r "NOPASSWD" /etc/sudoers /etc/sudoers.d/ 2>/dev/null | grep -q "$ROCKPI_USER"; then
+  fail "$ROCKPI_USER has NOPASSWD sudo (should require password)"
 else
-  pass "autohodl sudo requires password"
+  pass "$ROCKPI_USER sudo requires password"
 fi
 
 echo ""
