@@ -184,27 +184,35 @@ done
 
 log "--- Configuring firewall ---"
 
-# Reset to known state if not already configured
-ufw --force reset
+# Idempotent: only reset UFW if it hasn't been configured by us yet.
+# We tag our setup by checking for our outbound DNS rule.
+if ufw status | grep -q "53/udp.*ALLOW OUT"; then
+  log "UFW already configured (our rules detected), preserving existing rules."
+  UFW_ALREADY_CONFIGURED=1
+else
+  log "UFW not yet configured, applying baseline rules."
+  UFW_ALREADY_CONFIGURED=0
+  ufw --force reset
 
-ufw default deny incoming
-ufw default deny outgoing
-ufw logging on
+  ufw default deny incoming
+  ufw default deny outgoing
+  ufw logging on
 
-# Inbound: SSH only
-ufw allow in 22/tcp comment "SSH (remove after Cloudflare Tunnel setup)"
+  # Inbound: SSH only (remove after Cloudflare Tunnel is verified)
+  ufw allow in 22/tcp comment "SSH (remove after Cloudflare Tunnel setup)"
 
-# Outbound allowlist
-ufw allow out 53/udp comment "DNS (udp)"
-ufw allow out 53/tcp comment "DNS (tcp)"
-ufw allow out 80/tcp comment "HTTP"
-ufw allow out 443/tcp comment "HTTPS"
-ufw allow out 123/udp comment "NTP"
+  # Outbound allowlist
+  ufw allow out 53/udp comment "DNS (udp)"
+  ufw allow out 53/tcp comment "DNS (tcp)"
+  ufw allow out 80/tcp comment "HTTP"
+  ufw allow out 443/tcp comment "HTTPS"
+  ufw allow out 123/udp comment "NTP"
 
-# Optional: Git over SSH (disabled by default; prefer HTTPS remotes)
-# ufw allow out 22/tcp comment "Git+SSH (optional)"
+  # Optional: Git over SSH (disabled by default; prefer HTTPS remotes)
+  # ufw allow out 22/tcp comment "Git+SSH (optional)"
+fi
 
-# ICMP echo-request outbound for debugging
+# ICMP echo-request outbound for debugging (idempotent — guarded by grep)
 # UFW doesn't natively support ICMP rules via CLI, use before.rules
 BEFORE_RULES="/etc/ufw/before.rules"
 if ! grep -q "rockpi-icmp-out" "$BEFORE_RULES" 2>/dev/null; then

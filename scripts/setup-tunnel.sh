@@ -53,9 +53,13 @@ fi
 # --- Step 2: Authenticate with Cloudflare ---
 echo ""
 echo "--- Authenticating with Cloudflare ---"
-echo "A URL will be displayed. Open it in a browser on another device to authorize."
-echo ""
-HOME=/root cloudflared tunnel login
+if [[ -f /root/.cloudflared/cert.pem ]]; then
+  echo "Already authenticated (cert.pem exists), skipping login."
+else
+  echo "A URL will be displayed. Open it in a browser on another device to authorize."
+  echo ""
+  HOME=/root cloudflared tunnel login
+fi
 
 # --- Step 3: Create named tunnel ---
 echo ""
@@ -103,17 +107,24 @@ HOME=/root cloudflared tunnel route dns "$TUNNEL_NAME" "$TUNNEL_HOSTNAME"
 # --- Step 6: Install systemd service ---
 echo ""
 echo "--- Installing cloudflared as systemd service ---"
-if cloudflared service install --help 2>&1 | grep -q -- '--config'; then
-  cloudflared service install --config /etc/cloudflared/config.yml
+if systemctl list-unit-files cloudflared.service &>/dev/null && systemctl cat cloudflared.service &>/dev/null; then
+  echo "cloudflared service already installed, ensuring config is correct."
 else
-  cloudflared service install
-  mkdir -p /etc/systemd/system/cloudflared.service.d
-  cat > /etc/systemd/system/cloudflared.service.d/override.conf <<'OVERRIDE'
+  if cloudflared service install --help 2>&1 | grep -q -- '--config'; then
+    cloudflared service install --config /etc/cloudflared/config.yml
+  else
+    cloudflared service install
+  fi
+fi
+
+# Always ensure override points to our config (idempotent)
+mkdir -p /etc/systemd/system/cloudflared.service.d
+cat > /etc/systemd/system/cloudflared.service.d/override.conf <<'OVERRIDE'
 [Service]
 ExecStart=
 ExecStart=/usr/bin/cloudflared --config /etc/cloudflared/config.yml tunnel run
 OVERRIDE
-fi
+
 systemctl daemon-reload
 systemctl enable cloudflared
 systemctl restart cloudflared

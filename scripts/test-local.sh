@@ -32,9 +32,9 @@ docker cp "$REPO_DIR/scripts" "$CONTAINER:/opt/scripts"
 # Create /run/sshd (on real hardware sshd is already running; in container /run is tmpfs)
 docker exec "$CONTAINER" mkdir -p /run/sshd
 
-# Run hardening
+# Run hardening (feed newline for "press any key" + "yes" for SSH confirmation)
 echo "=== Running harden-rockpi.sh ==="
-docker exec "$CONTAINER" bash /opt/scripts/harden-rockpi.sh
+printf '\nyes\n' | docker exec -i "$CONTAINER" bash /opt/scripts/harden-rockpi.sh
 
 # Start services that were installed at runtime (systemd doesn't auto-start them in Docker)
 docker exec "$CONTAINER" systemctl daemon-reload
